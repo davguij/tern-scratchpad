@@ -15,9 +15,9 @@ execution: code
 - **Objective:** A developer working beside a coding agent can capture a follow-up idea inside Tern in one action, find it again on any later run, and never expose it to the agent working in the repo.
 - **Product authority:** The decisions the user confirmed in the brainstorm dialogue. Where this plan and the starter plugin in the repo disagree, this plan wins.
 - **Current area:** Text capture with Markdown, plus the list that holds the notes. Acting on notes later (handing them to an agent, search, delete) is not active scope.
-- **Means:** A block that keeps notes in the plugin's own key-value store and edits them with a hand-built text editor over Tern's `editor` field, pending the native-editing decision after U0 (KTD1, KTD3, KTD10).
+- **Means:** A block that keeps notes in the plugin's own key-value store and edits them over Tern's `editor` field with native editing on (`features = { "edit" }`): Tern supplies caret placement and selection, and the block applies typed keys itself (KTD1, KTD3, KTD10).
 - **Stop conditions:** Stop and ask if notes would have to be written under any project path, or if Tern gives plugin blocks no way to receive typed text.
-- **Open blockers:** None for U0, U1, U2 and U4. U3 and U5 wait on the user's editing decision after U0 (KTD10).
+- **Open blockers:** None. U0 ran and the user chose native editing (KTD10).
 
 ---
 
@@ -116,7 +116,7 @@ Deferred for later:
 ### Dependencies / Assumptions
 
 - Tern's `editor` field styles text but cannot hide it or change its size, so R4 shows delimiters and gives headings weight and color only (`https://docs.stencil.so/tern/elements/input.md`).
-- Tern's published docs say plugin blocks advertise no native-editing features, while `tern.d.luau` `BlockDef` declares a `features` option. Until U0 settles it and the user decides (KTD10), editing is assumed hand-built: every key reaches the block's key handler, there is no native selection or undo, and a click in the editor focuses it but does not place the caret (`https://docs.stencil.so/tern/elements/input.md`). R2 and R4 rest on this, and R13 therefore never promises a mouse caret.
+- Tern's published docs say plugin blocks advertise no native-editing features, but `tern.d.luau` `BlockDef` declares `features`, and U0 observed that `features = { "edit" }` works (see U0 outcome). Typed characters, Enter, Backspace, Delete and arrows still arrive as `key` calls; click, selection and selection edits arrive as `edit` events. R2 and R4 rest on this.
 - The `editor` node kind is documented only on the published site and is absent from `tern.d.luau`, so its props are taken from the docs.
 - Typical notes are one or two sentences. Large pastes are possible but not designed for.
 - `tern.kv` lives on the machine whose panes the host half serves, so a pane running on a remote host keeps its own list there. "One list" means one per machine; remote use is not designed for.
@@ -125,7 +125,7 @@ Deferred for later:
 
 #### Decided After U0
 
-- Native editing or hand-built editing, and whether a hand-built fallback stays if native depends on a user setting. See U0 and KTD10.
+- Native editing, adopted after U0 with no hand-built fallback (no setting dependency was found). `undo` is not enabled. See U0 and KTD10.
 
 #### Deferred to Implementation
 
@@ -151,14 +151,14 @@ Product Contract preservation: changed. R13 and R14 are added, R7 gains "created
 
 - KTD1. Notes are one list in the plugin key-value store under a single key, as `{ id, text, archived }` entries plus an id counter. The store is `<data>/kv.json` in the plugin data directory, shared by every window, so it meets R11 and R12 with no code of ours (`tern.d.luau` `tern.kv`, `tern.plugin.data`). Chosen over a key per note, which needs a separate index to stay consistent, and over files in the data directory, which add parsing for nothing. Rewriting the whole list on each keystroke is acceptable for notes of a few sentences.
 - KTD2. The store is the source of truth and block state holds only view state: selected note id, mode, caret. Every handler reads the note from the store before acting and writes through it. Handlers of one plugin serialize on a single host worker thread, so a read-modify-write cannot interleave with another pane's. That holds per host VM: a window with no daemon runs its own host runtime, and across VMs the last write wins. A stale pane picks up the newer text on its next handler. The caret is clamped to the text it finds.
-- KTD3. Editing is hand-built on `tern.ui.node("editor", …)`, unless the user adopts native editing after U0 (KTD10). Note text lives in the store (KTD2); the block keeps only the caret, mode and selected id, and each edit handler reads the text, applies the keystroke at the clamped caret and writes it back. The field is shown with `text`, `cursor` and `decor`. Editing offsets are UTF-8 byte offsets on character boundaries, converted to UTF-16 for `cursor` and `decor` because the field counts in UTF-16. No `anchor` is used, since selection is not in scope.
+- KTD3. Editing uses native editing on `tern.ui.node("editor", …)` with `features = { "edit" }`. Note text lives in the store (KTD2); the block keeps only the caret, mode and selected id. Typed keys, Backspace, Delete and arrows arrive as `key` calls and are applied by `editbuf.luau` at the caret; a native selection, click or Home/End arrives as an `edit` event `{ from, to, text, cursor, len }` in UTF-16 offsets, applied to the stored text (ignored when `len` does not match, which marks it stale). The field is shown with `text`, `cursor` and `decor`. The block's offsets are UTF-8 byte offsets on character boundaries, converted to UTF-16 for `cursor`, `decor` and events. No `anchor` is used.
 - KTD4. Live styling is a pure scanner over the note text that returns `decor` spans: delimiters as `dim`, content as `strong`, `em` or `code`, headings as `strong accent`, link text as `link`. It rescans the whole note per keystroke. An unclosed or unsupported span yields no decoration, which is R5. Nested emphasis is not recognised.
 - KTD5. The rendered view is `tern.ui.md` over the raw text, so R6 needs no renderer of ours.
 - KTD6. Pointer input uses node `actions = { click = "<act>=<value>" }`, answered in the block's `event` handler by `ev.act` and `ev.value`, the pattern in the Tern checklist example (`https://docs.stencil.so/tern/guides/blocks.md`). The bottom bar is a `dock` region of clickable badges carrying keycap hints.
 - KTD7. Each invocation opens a new pane with `cx:new_block("scratchpad.notes")`. There is no pane reuse, because every pane reads the same store (KTD2) and reuse would need a pane lookup for no user-visible gain. This is cheap to change later.
 - KTD8. The list is ordered by note id, descending, so a note never moves while it is edited. A row shows the first non-empty line of the note, left to Tern's list to truncate.
 - KTD9. The block has two modes. In browse mode `j`/`k` and the arrows move, Enter edits, `n` starts a new note, `y` copies, `a` archives or restores, `v` toggles the archived view. In edit mode, typed text, paste, Enter, Backspace, Delete, arrows and Home/End edit the note and Escape finishes it. Up and Down move between logical lines, so a soft-wrapped line moves as one. Ctrl and cmd chords are either consumed by the block or unused; the block does not assume that ignoring a key returns it to Tern (U5). This settles R8's focus zones.
-- KTD10. The editing mechanism is decided by the user after U0 reports, not by the implementer. Hand-built editing (KTD3, U3) is the working assumption until then. U0's decision factors and outcomes govern the choice, and U3 and U5 do not start before it.
+- KTD10. The user chose native editing after U0 reported, with the least hand-written code: `editbuf.luau` keeps only the key-driven edits and the UTF-8/UTF-16 conversion.
 
 ### High-Level Technical Design
 
@@ -180,8 +180,7 @@ flowchart TB
 
 Considered and not built:
 
-- Mouse caret placement and mouse selection, unless the native-editing check in U0 succeeds and the user adopts it. Otherwise Tern gives a plugin block neither, and the confirmed scope accepts that.
-- Undo. Plugin blocks receive no undo event; revisit if Tern starts delivering one.
+- Undo. `undo` is not declared in `features`, so ⌃Z does nothing; revisit if wanted.
 - Debounced or batched writes. One small value is rewritten per keystroke; revisit if typing in a long note lags.
 - Pane reuse and cross-pane live refresh of an open note. A pane sees other panes' changes on its next key or click, so R11 holds from that point. Whether Tern gives a block a refresh signal is not established.
 
@@ -216,6 +215,7 @@ Considered and not built:
   - **Native works, with no setting dependency:** the user decides whether to adopt it. Adopting drops U3, restores mouse caret, selection and undo to scope, and updates R13, KTD3 and Scope Boundaries.
   - **Native works only with the setting on:** the user decides between native with a hand-built fallback (U3 stays, so more code) and hand-built only (the current plan).
   - **Native does not work:** continue with the hand-built plan unchanged; the accepted limits stand.
+- **Recorded outcome (headless probe, since removed):** native editing works for plugin blocks with `features = { "edit" }`, contrary to the published docs. Typed characters, Backspace, Left and Escape arrive as `key` calls. After a native selection (⇧-arrows, ⌘A), typing or Backspace arrives as an `edit` event `{ from, to, text, cursor, len }` in UTF-16 offsets. A click or Home/End arrives as a zero-width `edit` event that moves the caret. ⌃Z arrives as an `undo` event only when `undo` is declared. The Native composer editing setting was not tested. The user chose native editing (KTD10); U3 shrank to key-driven edits plus offset conversion.
 - **Test scenarios:** none -- this is a probe whose output is a recorded observation set.
 - **Verification:** The decision factors are each answered with an observed result and presented to the user.
 
@@ -261,7 +261,7 @@ Considered and not built:
 
 - **Goal:** Apply typing, paste, deletion and caret movement to text, and convert offsets for the editor node.
 - **Requirements:** R2.
-- **Dependencies:** U0 (outcome). Built only if U0 chose the hand-built path, or the native path with a hand-built fallback (KTD10).
+- **Dependencies:** U0 (outcome: native adopted). Still built, but only for the key-driven edits and the UTF-8/UTF-16 conversion; selection edits come from Tern's `edit` events.
 - **Files:** `editbuf.luau` (create).
 - **Approach:**
   - Operations: insert text at the caret, backspace, delete, left, right, up, down, home, end (KTD3, KTD9).
@@ -301,12 +301,11 @@ Considered and not built:
 
 - **Goal:** Typing, paste and live styling in the note area.
 - **Requirements:** R2, R3, R4, R5, R6, R8, R14.
-- **Dependencies:** U0 (outcome), U2, U4, and U3 unless U0 chose the native path.
+- **Dependencies:** U0 (outcome), U2, U3, U4.
 - **Files:** `host.luau` (modify).
 - **Approach:**
-  - Build on the outcome U0 recorded (KTD10). On the hand-built path, continue below. On the native path, the block sets `features` and answers `edit` and `undo` events instead of routing typed keys through U3.
+  - Set `features = { "edit" }` (no `undo`). Typed keys, `paste`, Enter, Backspace, Delete, arrows, Home and End go through U3's key-driven edits; `edit` events (selection, click, Home/End) are applied to the stored text through `editbuf.apply_edit`, ignoring an event whose `len` does not match the current text. Every change is written through U1 (KTD2).
   - In edit mode render an `editor` node with the note text, UTF-16 `cursor`, `decor` from U2 converted by U3, and a placeholder on an empty note.
-  - Route typed keys, `paste`, Enter, Backspace, Delete, arrows, Home and End through U3, then write the new text through U1 (KTD2).
   - Escape, a row click or the finish control returns to browse mode and the rendered view; finishing an emptied note calls U1's drop (R14).
   - List every ctrl or cmd chord the block consumes. Tern's guide says a key the handler ignores is not passed anywhere else, so the block does not rely on returning false to hand a chord back. A smoke check confirms the U6 open chord still works while a Scratchpad pane is focused.
 - **Execution note:** Prefer a smoke run on each key family as it is wired; the `editor` props are documented only on the published site.
@@ -317,7 +316,7 @@ Considered and not built:
   - Multi-line paste arrives in the note as pasted, in order.
   - Delete all text and finish: the note disappears from the list (R14).
   - Typing `é` and an emoji, then moving left and typing again, inserts at the right place.
-  - Clicking inside the editor keeps editing and leaves the caret where it was.
+  - Clicking inside the editor places the caret there, and typing then inserts at that position.
 - **Verification:** The full F1 flow works with no mouse, and F2 works with only the mouse.
 
 ### U6. Palette command and key binding
