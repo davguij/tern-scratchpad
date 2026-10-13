@@ -1,0 +1,7 @@
+{
+  "name": "tern-scratchpad",
+  "version": "0.1.0",
+  "description": "A scratchpad plugin for Tern.",
+  "private": false,
+  "license": "MIT"
+}

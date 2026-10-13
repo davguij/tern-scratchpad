@@ -1,0 +1,11 @@
+schema = 1
+id = "scratchpad"
+name = "Scratchpad"
+version = "0.1.0"
+description = "A scratchpad plugin for Tern."
+host = "host.luau"
+window = "window.luau"
+
+[[lenses]]
+id = "seq"
+match = ["seq *"]
