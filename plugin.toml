@@ -9,3 +9,8 @@ window = "window.luau"
 [[lenses]]
 id = "seq"
 match = ["seq *"]
+
+[[blocks]]
+id = "notes"
+title = "Scratchpad"
+icon = "edit"
